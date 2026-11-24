@@ -1,0 +1,25 @@
+{
+  "name": "宽窄 · 丁二皇",
+  "short_name": "宽窄",
+  "description": "朋友间醇享，有你就有我",
+  "start_url": "/?source=pwa&v=0.22.35",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#030d11",
+  "theme_color": "#07130f",
+  "icons": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

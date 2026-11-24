@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>宽窄 · 下载安装</title>
+<style>
+  :root{--gold:#c8a35e;--gold2:#f0d49b;--bg:#0b1a1c;--card:#12282b;--line:rgba(227,189,122,.28);--txt:#ecd9b0;--sub:#9fb6b5}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{background:radial-gradient(120% 80% at 50% 0,#173638 0,var(--bg) 60%);color:var(--txt);
+    font:15px/1.6 -apple-system,system-ui,"PingFang SC",sans-serif;min-height:100vh;padding:24px 16px 48px}
+  .wrap{max-width:520px;margin:0 auto}
+  .brand{text-align:center;margin:6px 0 18px}
+  .brand b{display:block;font-size:30px;letter-spacing:6px;color:var(--gold2);
+    text-shadow:0 2px 18px rgba(200,163,94,.35)}
+  .brand span{font-size:12px;color:var(--sub);letter-spacing:2px}
+  /* 微信内打开提示 */
+  .wxtip{display:none;background:linear-gradient(135deg,rgba(200,163,94,.16),rgba(200,163,94,.05));
+    border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:0 0 18px;position:relative}
+  .wxtip.on{display:block}
+  .wxtip b{color:var(--gold2)}
+  .wxtip .arrow{position:absolute;top:-9px;right:16px;font-size:22px;color:var(--gold2);animation:bob 1.2s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px 18px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);text-align:center;margin:0 0 14px}
+  .box .state{font-size:17px;font-weight:700;color:var(--gold2)}
+  .box .sub{font-size:12px;color:var(--sub);margin-top:6px}
+  .spin{width:34px;height:34px;margin:0 auto 14px;border-radius:50%;
+    border:3px solid rgba(200,163,94,.25);border-top-color:var(--gold);animation:rot 1s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .ok{font-size:40px;line-height:1;margin-bottom:10px}
+  .btn{display:inline-block;margin-top:16px;padding:12px 34px;border-radius:999px;text-decoration:none;
+    background:linear-gradient(135deg,var(--gold),var(--gold2));color:#241a06;font-weight:700;font-size:15px;
+    box-shadow:0 6px 18px rgba(200,163,94,.3)}
+  .btn:active{transform:scale(.96)}
+  .alt{display:none;margin-top:14px;font-size:12px;color:var(--sub)}
+  .alt.on{display:block}
+  .alt a{color:var(--gold2);text-decoration:none;margin:0 6px;word-break:break-all}
+  .ios{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;
+    padding:14px 16px;margin:0;font-size:13px;color:var(--sub)}
+  .ios b{color:var(--gold2)}
+  .ios a{color:var(--gold2);word-break:break-all}
+  .foot{text-align:center;color:#6f8685;font-size:11px;margin-top:22px;line-height:1.8}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><b>宽 窄</b><span>安卓安装包下载</span></div>
+
+  <div class="wxtip" id="wxtip">
+    <span class="arrow">↗</span>
+    <b>请点右上角「···」→ 选择在浏览器打开</b>
+    <div style="font-size:12px;margin-top:4px">微信里直接下载会被拦截，用浏览器打开本页即可自动开始下载。</div>
+  </div>
+
+  <div class="box" id="state">
+    <div class="spin" id="spin"></div>
+    <div class="state" id="stateTxt">正在开始下载…</div>
+    <div class="sub" id="stateSub">如未自动开始，请稍候或点击下方按钮</div>
+    <a class="btn" id="manualBtn" href="#" style="display:none">点这里下载</a>
+    <div class="alt" id="alt">
+      下载没反应？试试备用线路：
+      <span id="altLinks"></span>
+    </div>
+  </div>
+
+  <div class="ios" id="iosBox">
+    <b>iPhone / iPad 用户：</b>没有独立安装包。请用 <b>Safari</b> 打开游戏地址 → 分享 → 「添加到主屏幕」。<br>
+    <span id="webUrl" style="display:block;margin-top:8px;word-break:break-all"></span>
+  </div>
+
+  <div class="foot">安装后 App 会自动热更新到最新版，无需重复下载。</div>
+</div>
+
+<script src="/download.js"></script>
+</body>
+</html>

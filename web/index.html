@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<!-- data-ver 是前端包版本号，热更新按它比对；改版时由 tools/make-update.mjs 自动同步，
+     手工改也可以（要和 web/version.json 保持一致）。 -->
+<html lang="zh-CN" class="dh-boot" data-ver="0.22.103" data-back="b3" data-cloth="c2">
+<head>
+<script>
+/* v0.20.79 App 套壳：Capacitor 以本地方式加载本页（origin 为 https://localhost），
+   静态资源走 App 内置，只有 WebSocket 回连真实服务器。
+   判定条件严格限定 https + localhost + 无端口，网页端（真实域名 / 本地 :3000 开发）不受影响。 */
+(function () {
+  try {
+    if (location.protocol === 'https:' && location.hostname === 'localhost' && !location.port) {
+      window.__DH_WS__ = 'wss://kuanzhai36.it.com';
+      /* v0.20.89：上传头像由服务端落盘，返回的是站点根路径 /avatar/xxx.jpg。
+         App 内 origin 是 https://localhost，相对根路径会去本地找 → 404 → 头像白框。
+         这里给出「资源回源前缀」，由 avaSrc() 拼在根路径前面；网页端保持空串走同源。 */
+      window.__DH_BASE__ = window.__DH_WS__.replace(/^ws/, 'http').replace(/\/+$/, '');
+    }
+  } catch (e) {}
+})();
+</script>
+<style>
+/* 首屏兜底：CSS / 模块脚本还没到之前，先盖一张「游戏主页同款」的加载页，
+   避免闪出黑底 / 白底的裸 HTML。这段是内联的，一定比任何外部资源先执行。
+   html 底色保持深色——哪怕资源没到，也只是深色底，绝不白屏。
+   背景直接复刻登录页（.gate）的深绿径向渐变 + 点阵纹理：加载页和主页视觉连续，
+   且天然适配各种屏幕，不再用固定海报图（之前 poster 在异形屏上尺寸对不齐）。 */
+html{background:#030d11;color-scheme:dark}
+/* v0.22.66：默认外观 = 鎏金格牌背 + 典雅黑牌桌。内联先给出变量，
+   免得外部 style.css 未到 / App 内缓存旧 CSS 时先闪一下经典皮。
+   玩家在「桌面设置」里换过皮，applyDeskSkin() 会用行内变量覆盖这里。 */
+:root{--back-photo:url("img/backs/b3.webp");--cloth-photo:url("img/cloths/c2.webp")}
+/* 加载期间把游戏界面（登录/大厅/牌桌）藏起来，但【必须保留加载页本身可见】。
+   旧版这里把整页 body 都 hidden 了，结果加载页 #dh-boot 也一并被藏，
+   用户就只看到一块黑屏。下面 #dh-boot 用 id 优先级把可见性抢回来。 */
+html.dh-boot body{visibility:hidden}
+/* 加载页：固定全屏、永远不拦点击（否则 dh-ready 兜底前会吞掉登录页点击）。
+   背景复刻主页 .gate 的渐变，不再有固定底图。 */
+#dh-boot{position:fixed;inset:0;z-index:99998;overflow:hidden;
+  pointer-events:none;visibility:visible;
+  background:
+    radial-gradient(64% 42% at 50% 0%,rgba(46,150,108,.42) 0%,transparent 64%),
+    radial-gradient(120% 88% at 50% 106%,#0b2c20 0%,#03100c 74%);
+  color:#ecd9b0;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  transition:opacity .4s ease}
+/* 点阵纹理，和主页 .gate::before 一致 */
+#dh-boot::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.45;
+  background-image:radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:14px 14px}
+/* 品牌区：竖排金色「宽窄」+ 金色标语，位置与主页 .gate-brand 一致（屏幕中上部）。
+   这里【不再画登录框】，加载页就是「主页去掉登录框」的样子。 */
+#dh-boot .dh-brand{position:absolute;left:50%;top:calc(50% - 150px);transform:translate(-50%,-50%);
+  width:min(88%,360px);text-align:center;z-index:1}
+#dh-boot .dh-logo{font-family:'DH-KZ',"Songti SC",serif;font-size:76px;letter-spacing:6px;
+  writing-mode:vertical-rl;text-orientation:upright;width:max-content;margin:0 auto;line-height:1.05;font-weight:400;
+  background:linear-gradient(180deg,#fff8d8 0%,#ffe3a1 40%,#e0ae59 66%,#b47f2d 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 3px 8px rgba(0,0,0,.62)) drop-shadow(0 0 22px rgba(227,169,72,.3))}
+#dh-boot .dh-sub{display:flex;flex-direction:column;align-items:center;gap:2px;margin:10px 0 0;
+  font-family:'DH-FS',"FangSong","STFangsong",serif;font-size:13px;letter-spacing:2px;color:#a89b82}
+#dh-boot .dh-sub span:first-child{transform:translateX(-26px)}
+#dh-boot .dh-sub span:last-child{transform:translateX(26px);color:#caa86a}
+/* 进度条：一条正常的细进度条，放在「登录按钮那个位置」（屏幕中下部，不置底），
+   不是登录按钮的尺寸。它是唯一会出现的进度指示；热更下载时也复用它，不再弹独立更新小窗。 */
+#dh-boot .dh-bar{position:absolute;left:50%;top:calc(50% + 96px);transform:translate(-50%,-50%);
+  width:min(60%,260px);height:6px;border-radius:99px;overflow:hidden;z-index:1;
+  background:rgba(255,255,255,.16);box-shadow:0 1px 8px rgba(0,0,0,.4)}
+#dh-boot .dh-fill{position:absolute;left:0;top:0;bottom:0;width:6%;border-radius:99px;
+  background:linear-gradient(90deg,#e3bd7a,#f7e3b4);
+  box-shadow:0 0 10px rgba(227,189,122,.65);transition:width .25s ease}
+/* 进度条下方的提示文字：加载时显示「加载中…」，热更时显示「正在更新到 vX.X.X 63%」 */
+#dh-boot .dh-tip{position:absolute;left:50%;top:calc(50% + 120px);transform:translate(-50%,0);
+  width:min(80%,320px);text-align:center;font-size:12px;letter-spacing:.5px;color:#9bbfa6;z-index:1}
+html.dh-ready body{visibility:visible}
+/* 更新下载期间用 .dh-hold 按住加载页，不让它淡出；更新完（或失败放行）才淡出 */
+html.dh-ready:not(.dh-hold) #dh-boot{opacity:0;visibility:hidden;pointer-events:none}
+</style>
+<meta charset="utf-8">
+<meta content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover" name="viewport">
+<meta content="#07130f" name="theme-color">
+<title>宽窄 · 丁二皇</title>
+<link href="data:," rel="icon">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="宽窄">
+<link href="style.css" id="dh-css" rel="stylesheet">
+<script>
+/* 分享网关要求每个请求都带 sharecode，相对路径不会继承页面地址上的参数，
+   不补的话线上只能拿到空壳 HTML，样式和脚本统统 403。
+   本地开发（地址上没有 sharecode）保持原样。 */
+(function () {
+  var sc = new URLSearchParams(location.search).get('sharecode');
+  var q = [];
+  if (sc) q.push('sharecode=' + encodeURIComponent(sc));
+  q.push('v=' + (document.documentElement.getAttribute('data-ver') || '0.22.2'));   // 改版后强制刷一次缓存，免得手机上还拿着旧脚本
+  window.__SC_Q__ = '?' + q.join('&');
+  if (sc) {
+    var link = document.getElementById('dh-css');
+    if (link) link.href = 'style.css' + window.__SC_Q__;
+  }
+})();
+</script>
+</head>
+<body>
+<!-- 加载页：复刻游戏主页外观（背景渐变 + 竖排宽窄 + 标语），去掉登录框；
+     进度条做成登录按钮样式、放在登录按钮位置；热更下载时复用同一条进度条。 -->
+<div id="dh-boot" aria-hidden="true">
+  <div class="dh-brand">
+    <div class="dh-logo">宽窄</div>
+    <p class="dh-sub"><span>朋友间醇享，</span><span>有你就有我</span></p>
+  </div>
+  <div class="dh-bar" role="progressbar" aria-label="加载中">
+    <i class="dh-fill"></i>
+  </div>
+  <div class="dh-tip" id="dhTip">加载中…</div>
+</div>
+<script>
+/* 加载页进度条：先平滑爬到约 90%，等页面就绪(dh-ready)再补满 100% 并随遮罩淡出。
+   3 秒兜底也会触发 dh-ready，所以最慢 3 秒进度条必到 100%。
+   同时挂出 window.__dhBoot 给 update.js 用：热更下载时直接驱动同一条进度条，
+   不再弹独立的更新小窗；下载期间用 .dh-hold 按住加载页，下完自动重载进新版。 */
+(function () {
+  var boot = document.getElementById('dh-boot');
+  var fill = boot && boot.querySelector('.dh-fill');
+  var tip = document.getElementById('dhTip');
+  if (!fill) return;
+  var p = 6, cap = 90, raf, manual = false;
+  function setTip(t) { if (tip) tip.textContent = t || ''; }
+  function setW(w) { fill.style.width = Math.max(0, Math.min(100, w)) + '%'; }
+  function step() {
+    if (manual) return;                 // 被热更接管后，停止自动爬条
+    p += (cap - p) * 0.045 + 0.12;
+    if (p > cap) p = cap;
+    setW(p);
+    if (p < cap) raf = requestAnimationFrame(step);
+  }
+  raf = requestAnimationFrame(step);
+  // 给热更脚本用的统一接口
+  window.__dhBoot = {
+    hold: function () { document.documentElement.classList.add('dh-hold'); },
+    release: function () { document.documentElement.classList.remove('dh-hold'); },
+    setProgress: function (pct, text) {
+      manual = true;                    // 一旦热更接管，自动爬条让位
+      if (typeof pct === 'number') setW(pct);
+      if (text) setTip(text);
+    },
+    setText: function (t) { setTip(t); }
+  };
+  var mo = new MutationObserver(function () {
+    if (document.documentElement.classList.contains('dh-ready')) {
+      if (!manual) { setW(100); setTip('即将进入…'); }
+      mo.disconnect();
+    }
+  });
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+})();
+</script>
+<!-- 登录闸门：进大厅之前先过这一层，登录成功才进大厅 -->
+<div class="gate" id="gate">
+  <div class="gate-inner">
+    <div class="gate-brand">
+      <div class="gate-logo">宽窄</div>
+      <p class="gate-sub"><span>朋友间醇享，</span><span>有你就有我</span></p>
+    </div>
+
+    <div class="gate-card">
+      <div class="auth-field"><label>账号</label>
+        <input class="auth-input" id="gateAccount" maxlength="20" autocomplete="off" autocapitalize="off"
+          spellcheck="false" inputmode="latin" placeholder="字母 / 数字 / _ - . @，3–20 位"></div>
+      <div class="auth-field hidden" id="gateNickWrap"><label>昵称 <em class="opt">8 字以内</em></label>
+        <div class="nick-row">
+          <input class="auth-input" id="gateNick" maxlength="8" placeholder="牌桌上显示的名字">
+          <!-- v0.22.45：注册必选头像（默认问号，点选系统头像或相册上传） -->
+          <button class="ava-pick" id="avaPick" type="button" aria-label="选择头像"><span class="q">?</span><span class="t">头像</span></button>
+        </div></div>
+      <div class="auth-field"><label>密码</label>
+        <input class="auth-input" id="gatePass" type="password" maxlength="64" autocomplete="new-password"
+          name="dh-pw" placeholder="6 位以上，字母、数字、符号均可"></div>
+      <div class="auth-field hidden" id="gatePass2Wrap"><label>确认密码</label>
+        <input class="auth-input" id="gatePass2" type="password" maxlength="64" autocomplete="new-password"
+          placeholder="再输一次"></div>
+
+      <!-- v0.21.4：安全问题改为必填。忘了密码只能靠它自助找回 -->
+      <div class="auth-field hidden" id="gateSecQWrap"><label>安全问题 <em class="opt">忘记密码时用</em></label>
+        <select class="auth-input auth-select" id="gateSecQ">
+          <option value="">请选择一个问题</option>
+          <option value="我的出生城市">我的出生城市</option>
+          <option value="我的第一只宠物名字">我的第一只宠物名字</option>
+          <option value="我小学班主任姓什么">我小学班主任姓什么</option>
+          <option value="我最喜欢的一道菜">我最喜欢的一道菜</option>
+        </select></div>
+      <!-- 找回密码：第二步先展示问题，再让填答案 -->
+      <div class="auth-field hidden" id="gateQBox"><label>安全问题</label>
+        <div class="gate-q" id="gateQText"></div></div>
+      <div class="auth-field hidden" id="gateSecAWrap"><label>答案</label>
+        <input class="auth-input" id="gateSecA" maxlength="40" autocomplete="off"
+          placeholder="忘了密码答对这句就能重置"></div>
+
+      <!-- 找回密码模式的字段 -->
+      <div class="auth-field hidden" id="gateNewPassWrap"><label>新密码</label>
+        <input class="auth-input" id="gateNewPass" type="password" maxlength="64" autocomplete="new-password"
+          placeholder="6 位以上"></div>
+      <div class="auth-field hidden" id="gateNewPass2Wrap"><label>确认新密码</label>
+        <input class="auth-input" id="gateNewPass2" type="password" maxlength="64" autocomplete="new-password"
+          placeholder="再输一次"></div>
+
+      <button class="gate-submit" id="gateSubmit" type="button">登录</button>
+      <div class="auth-tip" id="gateTip"></div>
+      <div class="gate-forgot" id="gateForgot">忘记密码？</div>
+      <div class="gate-switch-row">
+        <div class="gate-switch" id="gateSwitch">还没有账号？<b>注册</b></div>
+        <!-- v0.22.26：分享挪到「注册」右侧（原图一位置），不再单独占一行 -->
+        <button class="gate-share-inline" id="gateShare" type="button">分享</button>
+      </div>
+
+    </div>
+    <!-- v0.22.6：版本号从「我的」面板挪到登录页底部，不用登录就能看出跑的是哪个包 -->
+    <div class="gate-ver" id="gateVer"></div>
+  </div>
+</div>
+<script>
+/* 版本号读 html 上的 data-ver：打热更包时工具会自动同步它，这里不写死 */
+(function () {
+  var el = document.getElementById('gateVer');
+  var v = (document.documentElement.getAttribute('data-ver') || '').trim();
+  if (el) el.textContent = v ? 'v' + v : '';
+})();
+</script>
+
+<!-- 大厅：建房 / 进房 -->
+<div class="lobby hidden" id="lobby">
+  <!-- 第一层：主界面（只有两个主体动作） -->
+  <div class="lobby-card home" id="lobbyHome">
+    <!-- 隐形热区：连点 5 次才出开发者口令，页面上不留任何痕迹 -->
+    <button aria-hidden="true" class="dev-hot" id="devHot" tabindex="-1" type="button"></button>
+    <div class="lobby-logo">宽窄</div>
+    <p class="lobby-sub"><span>朋友间醇享，</span><span>有你就有我</span></p>
+
+    <div class="home-actions">
+      <button class="home-btn" id="btnGoCreate">
+        <span class="hb-ico">
+          <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+            <rect height="13" rx="2" width="9.2" x="3.2" y="4.6"/>
+            <rect height="13" rx="2" width="9.2" x="11.6" y="6.4"/>
+          </svg>
+        </span>
+        <span class="hb-txt"><b>开设房间</b></span>
+        <span class="hb-go">›</span>
+      </button>
+
+      <button class="home-btn" id="btnGoJoin">
+        <span class="hb-ico">
+          <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+            <path d="M14.5 3.5h4a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5h-4"/>
+            <path d="M10 8.2 13.8 12 10 15.8"/><path d="M13.4 12H3.6"/>
+          </svg>
+        </span>
+        <span class="hb-txt"><b>加入房间</b></span>
+        <span class="hb-go">›</span>
+      </button>
+
+      <!-- v0.20.95：登录后才显示——自己开的 + 自己参与的房间一键直进（不记历史） -->
+      <button class="home-btn hidden" id="btnGoMine">
+        <b class="mine-badge hidden" id="mineBadge">0</b>
+        <span class="hb-ico">
+          <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+            <path d="M3.5 10.5 12 3.5l8.5 7"/>
+            <path d="M5.5 9.2V20a.8.8 0 0 0 .8.8h11.4a.8.8 0 0 0 .8-.8V9.2"/>
+            <path d="M10 20.8v-5.6h4v5.6"/>
+          </svg>
+        </span>
+        <span class="hb-txt"><b>你的房间</b></span>
+        <span class="hb-go">›</span>
+      </button>
+
+      <!-- v0.22.24：分享按钮 —— 弹出 iPhone / 安卓 地址与安装说明 -->
+      <button class="home-btn" id="btnShare">
+        <span class="hb-ico">
+          <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+            <path d="M12 14V3.5"/><path d="m8.2 6.8 3.8-3.3 3.8 3.3"/>
+            <path d="M5.5 11.5V19a1.5 1.5 0 0 0 1.5 1.5h10A1.5 1.5 0 0 0 18.5 19v-7.5"/>
+          </svg>
+        </span>
+        <span class="hb-txt"><b>分享</b></span>
+        <span class="hb-go">›</span>
+      </button>
+    </div>
+
+    <!-- 账户条：点头像或空白处进「我的」，头像上「换」直接换头像，名字右侧「改名」 -->
+    <div class="acct-bar" id="acctBar">
+      <div class="acct-main" id="acctMain">
+        <button class="acct-ava" id="acctAva" type="button"><i>?</i><em class="ava-chg">换</em></button>
+        <span class="acct-txt">
+          <span class="acct-nm"><b id="acctNick">未登录</b><button class="acct-rn hidden" id="acctRename" type="button">改名</button></span>
+          <em id="acctSub"></em>
+        </span>
+        <span class="acct-gem" id="acctGem"><span class="dm"></span> 0</span>
+      </div>
+    </div>
+
+    <div class="lobby-tip" id="homeTip"></div>
+  </div>
+
+  <!-- 第二层 A：房间设置 -->
+  <div class="lobby-card sheet hidden" id="lobbyCreate">
+    <div class="sheet-head">
+      <button class="sheet-back" id="btnBackCreate">‹ 返回</button>
+      <b>房间设置</b>
+    </div>
+
+    <div class="lobby-row-label">你的昵称</div>
+    <label class="lobby-field solo">
+      <input autocomplete="off" class="nick-input" id="nickCreate" maxlength="8" placeholder="取个名字">
+    </label>
+
+    <div class="lobby-row-label">人数 / 玩法</div>
+    <div class="seat-dijiu-row">
+      <div class="seat-opts solo">
+        <button class="seat-opt on" data-seats="8">8 人桌</button>
+      </div>
+      <!-- v0.22.67：地九王开关（默认开），与创建/登录按钮同色调；与人数各占一半 -->
+      <button class="dijiu-toggle on" type="button" id="dijiuOpt" aria-pressed="true"><i></i>地九王：开</button>
+    </div>
+    <div class="fair-note" id="dijiuHint">2 + 9 算地九王</div>
+
+    <div class="lobby-row-label">牌局时长</div>
+    <div class="dur-opts" id="durOpts">
+      <button class="dur-opt" data-min="30">30 分钟</button>
+      <button class="dur-opt on" data-min="60">1 小时</button>
+      <button class="dur-opt" data-min="90">1.5 小时</button>
+      <button class="dur-opt" data-min="120">2 小时</button>
+    </div>
+
+    <div class="lobby-row-label">底皮 / 圈芒 <em class="row-hint" id="stakeHint">最低带入 500</em></div>
+    <div class="stake-opts" id="stakeOpts">
+      <button class="stake-opt" data-ante="1"><b>1/2</b><em>50 起带</em></button>
+      <button class="stake-opt" data-ante="2"><b>2/5</b><em>100 起带</em></button>
+      <button class="stake-opt" data-ante="5"><b>5/10</b><em>250 起带</em></button>
+      <button class="stake-opt on" data-ante="10"><b>10/20</b><em>500 起带</em></button>
+      <button class="stake-opt" data-ante="20"><b>20/40</b><em>1000 起带</em></button>
+      <button class="stake-opt" data-ante="50"><b>50/100</b><em>2500 起带</em></button>
+      <button class="stake-opt" data-ante="100"><b>100/200</b><em>5000 起带</em></button>
+    </div>
+
+    <!-- v0.22.39：最低可玩剩余簸簸 = 底皮 × n（横向刻度拉条）；低于门槛下一手不发牌、强制留座 -->
+    <div class="lobby-row-label">最低可玩簸簸 <em class="row-hint" id="floorHint">低于 100 强制留座</em></div>
+    <div class="floor-slider-wrap">
+      <input type="range" class="floor-slider" id="floorRange" min="0" max="5" step="1" value="2"
+        aria-label="最低可玩簸簸倍数">
+      <div class="floor-ticks">
+        <i data-i="0">×4</i><i data-i="1">×6</i><i data-i="2">×8</i><i data-i="3">×10</i><i data-i="4">×12</i><i data-i="5">×16</i>
+      </div>
+    </div>
+
+    <!-- v0.20.97：防串通三项，开房人自己决定是否启用（默认全关） -->
+    <div class="lobby-row-label">防作弊</div>
+    <div class="fair-opts" id="fairOpts">
+      <button class="fair-opt" type="button" data-fair="dev" aria-pressed="false">
+        <b>同设备</b></b>
+      </button>
+      <button class="fair-opt" type="button" data-fair="ip" aria-pressed="false">
+        <b>同网络</b></b>
+      </button>
+      <button class="fair-opt" type="button" data-fair="geo" aria-pressed="false">
+        <b>100 米内</b></b>
+      </button>
+    </div>
+    <div class="fair-note" id="fairNote"></div>
+
+    <div class="create-sum" id="createSum"></div>
+    <button class="lobby-btn primary" id="btnCreate">创建房间</button>
+    <div class="lobby-tip" id="createTip"></div>
+  </div>
+
+  <!-- 第二层 B：加入房间 -->
+  <div class="lobby-card sheet hidden" id="lobbyJoin">
+    <div class="sheet-head">
+      <button class="sheet-back" id="btnBackJoin">‹ 返回</button>
+      <b>加入房间</b>
+    </div>
+
+    <div class="lobby-join">
+      <div class="code-cells" id="codeCells">
+        <input aria-label="房号第 1 位" autocomplete="off" class="code-cell" id="code0" inputmode="numeric" maxlength="1" type="tel">
+        <input aria-label="房号第 2 位" autocomplete="off" class="code-cell" id="code1" inputmode="numeric" maxlength="1" type="tel">
+        <input aria-label="房号第 3 位" autocomplete="off" class="code-cell" id="code2" inputmode="numeric" maxlength="1" type="tel">
+        <input aria-label="房号第 4 位" autocomplete="off" class="code-cell" id="code3" inputmode="numeric" maxlength="1" type="tel">
+      </div>
+      <button id="btnJoin" type="button">进入</button>
+    </div>
+
+    <div class="lobby-tip" id="joinTip"></div>
+  </div>
+
+</div>
+
+<div id="app">
+  <div id="stage">
+    <!-- 台面背景：宽度跟着舞台走，横屏 / 宽屏时铺满两侧，不留白边 -->
+    <div class="felt">
+      <div class="felt-edge"></div>
+      <div class="felt-glow"></div>
+    </div>
+
+    <!-- 750 设计稿内容层：宽屏时居中，两侧交给背景延展 -->
+    <div class="board">
+      <!-- 桌布暗字：跟在牌靴正上方，左右宽度与牌靴方框对齐 -->
+      <div class="watermark"><span>宽</span><span>窄</span></div>
+      <div class="watermark-sub">FAIR &amp; SQUARE</div>
+      <!-- 顶栏：左上菜单（三条杠）+ 右侧局数/阶段 -->
+      <header class="hud">
+        <div class="hud-left">
+          <button aria-label="菜单" class="hud-menu" id="btnMenu">
+            <span aria-hidden="true" class="bars"><i></i><i></i><i></i></span>
+          </button>
+          <!-- 我的 ID / 钻石常驻：v0.20.52 起从「点头像弹窗 / 菜单钻石栏」挪到这里 -->
+          <div class="hud-id" id="hudId">
+            <span class="hi-id">ID <b id="hudIdNo">—</b></span>
+            <span class="hi-sep"></span>
+            <span class="hi-gem"><i class="dm"></i><b id="hudGem">0</b></span>
+          </div>
+        </div>
+        <!-- v0.20.67：顶部「第 X 局 / 阶段状态条」信息块已按需求移除（手数、轮次·起手·说话人、分牌等状态）；
+             如需恢复，把下方 .meta 注释解除即可（app.js 已对 #handNo/#roundBadge 做空值保护，不会报错）。
+        <div class="meta">
+          <div class="meta-item"><span>第</span><b id="handNo">1</b><span>局</span></div>
+          <div class="meta-item stage" id="roundBadge">准备中</div>
+        </div>
+        -->
+
+      </header>
+
+      <!-- 中央区域：铭牌 + 信息条一起放大 1.2 倍，铭牌落在「宽窄」正下方 -->
+      <div class="center-zoom">
+        <div class="shoe">
+          <div class="shoe-brand" id="shoeBrand"><b>地九王</b></div>
+        </div>
+
+        <!-- 中央信息：圈芒 / 皮池 / 房间资料 -->
+        <div class="table-info" id="tableInfo">
+        <div class="ti-stack mango" id="mangoRow">
+          <svg aria-hidden="true" class="ti-chip" viewBox="0 0 40 34">
+            <ellipse cx="20" cy="26" fill="#2f6fae" rx="15" ry="6" stroke="#9ccdf5" stroke-width="1.1"/>
+            <ellipse cx="20" cy="20.5" fill="#3d84c9" rx="15" ry="6" stroke="#b9ddfa" stroke-width="1.1"/>
+            <ellipse cx="20" cy="14" fill="#4d9ae2" rx="15" ry="6.5" stroke="#dcefff" stroke-width="1.2"/>
+            <ellipse cx="20" cy="14" fill="none" rx="8.5" ry="3.4" stroke="#eaf6ff" stroke-dasharray="2.4 2.2" stroke-width="1"/>
+          </svg>
+          <span class="ti-label">芒果</span>
+          <b class="ti-mul" id="mangoTimes">×1</b>
+          <i class="ti-kind" id="mangoKind"></i>
+          <b class="ti-amount" id="mangoVal">20</b>
+        </div>
+        <div class="ti-stack pot" id="potRow">
+          <svg aria-hidden="true" class="ti-chip" viewBox="0 0 40 34">
+            <ellipse cx="20" cy="26" fill="#9b6a1d" rx="15" ry="6" stroke="#f0d08e" stroke-width="1.1"/>
+            <ellipse cx="20" cy="20.5" fill="#c08a2c" rx="15" ry="6" stroke="#f7dda4" stroke-width="1.1"/>
+            <ellipse cx="20" cy="14" fill="#dda63c" rx="15" ry="6.5" stroke="#ffefc6" stroke-width="1.2"/>
+            <ellipse cx="20" cy="14" fill="none" rx="8.5" ry="3.4" stroke="#fff4d8" stroke-dasharray="2.4 2.2" stroke-width="1"/>
+          </svg>
+          <span class="ti-label">皮池</span>
+          <span class="ti-pot-nums">
+            <span class="ti-pot-pair"><i class="ti-pot-k" id="potMainK">主</i><b class="ti-amount" id="potVal">0</b></span>
+            <span class="ti-pot-pair hidden" id="potSidePair"><i class="ti-pot-k">边</i><b class="ti-amount" id="potSideVal">0</b></span>
+          </span>
+        </div>
+
+        <div class="ri-line ri-room">
+          <button class="ri-copy" id="roomCopy" type="button">房间号</button>
+          <b class="ri-no" id="roomTag">—</b>
+        </div>
+        <div class="ri-line"><span>底皮</span><b><i id="anteVal">10</i> / <i id="mangoTag">20</i></b></div>
+        <div class="ri-line ri-rules"><span id="cellXiu">休芒</span><i>|</i><span id="cellZou">揍芒</span><i>|</i><span>圈芒</span></div>
+        <div class="ri-line" id="timeLine"><span>剩余时间</span><b id="timeTag">—</b></div>
+        </div>
+      </div>
+
+      <!-- 洗牌动画层（v0.20.63）：牌桌中心（皮池横栏正下方），348×246，z=32。
+           素材 img/wash_shuffle.webp = sp030.zip 的 xipai02→01→02→01→03 五段洗牌动作（同一机位
+           渲染、同一包围盒裁切，全帧共用一个锚点；03 段缩到 0.92 并把末帧牌堆对回 01/02 的位置），
+           8×11 网格精灵图（82 帧，约 0.75MB，启动即预加载）。牌背为游戏内的紫色「宽窄」牌背、
+           满不透明。平时 display:none，服务端广播 shuffleFx 时由 playWashFx() 逐帧推进背景位置
+           （x=列/y=行）整套只播一次（约 2.7s）自动收。 -->
+      <div class="wash-stage" id="washStage" aria-hidden="true">
+        <div class="wash-sprite" id="washSprite"></div>
+      </div>
+
+      <!-- 等待开局：房号 / 本桌设置 -->
+      <!-- 人数不足 2：暂停发牌，倒计时照走 -->
+      <div class="hold-banner hidden" id="holdBanner"></div>
+      <div class="wait-panel hidden" id="waitPanel"></div>
+      <!-- v0.22.32：带入记分牌独立出来，钉在房间信息栏正下方（信息栏放大后原位置会被盖住） -->
+      <div class="bring-slot" id="bringSlot"></div>
+
+      <!-- 开发者：上帝视角（全桌底牌 + 剩余牌堆） -->
+      <div class="god-bar hidden" id="godBar"></div>
+
+      <!-- 远端座位 -->
+      <div id="seatLayer"></div>
+
+      <!-- 自己 -->
+      <div class="my-info" id="myInfo"></div>
+      <!-- 我的行动按钮：围绕头像摆一圈（左丢/休、右敲、左上大、右上跟） -->
+      <div class="my-actions" id="myActions"></div>
+      <!-- 分牌：倒计时条 + 头牌托盘 + 右侧确定键（照参考视频的摆法） -->
+      <div class="split-hud hidden" id="splitHud">
+        <div class="sh-title">分牌倒计时：<b id="shLeft">20</b>s</div>
+        <div class="sh-bar"><i id="shFill"></i><span class="sh-chip" id="shChip">0</span></div>
+      </div>
+      <div class="split-tray hidden" id="splitTray"></div>
+      <div class="split-cta-slot hidden" id="splitCta"></div>
+      <div class="my-hand" id="myHand"></div>
+      <div class="split-preview" id="splitPreview"></div>
+
+      <!-- 操作栏 -->
+      <div class="action-bar" id="actionBar"></div>
+
+      <!-- 牌桌右上角：牌局回顾（其左侧为刷新按钮） -->
+      <button class="fab refresh" id="btnRefresh" type="button" aria-label="刷新">↻</button>
+      <button class="fab review" id="btnLog">回顾</button>
+      <!-- 牌桌左下角：实时战绩（与回顾同尺寸） -->
+      <button class="fab stats" id="btnStats">战绩</button>
+      <!-- 结算期动作按钮竖排（v0.20.66）：洗牌 / 发发看 / 强制秀牌 同一条竖排，
+           牌桌中央区（剩余时间下方、我的下注胶囊上方之间的中点），长方形倒圆角；
+           暗绿玻璃底 + 描金边 + 低饱和绿/金/红三色，融入台面。整组仅在「结算停留期」
+           出现，三个按钮各占一个固定槽位（不可用时变暗但不消失），不再各自漂移。 -->
+      <div class="action-stack stack-hidden" id="actionStack">
+        <button class="fab wash off act-green" id="btnWash" type="button" aria-label="洗牌" disabled>洗牌<em class="wash-cost"><span class="dm"></span>2</em></button>
+      <!-- v0.20.64：三按钮竖排 -->
+        <button class="ffk-btn off act-yellow" id="ffkBtn" type="button">发发看<em class="ffk-cost"><span class="dm"></span>2</em></button>
+        <button class="force-reveal off act-red" id="forceReveal">强制秀牌<em class="fr-cost"><span class="dm"></span>10</em></button>
+      </div>
+
+      <!-- 提示气泡 -->
+      <div class="toast" id="toast"></div>
+
+      <!-- 房主：带入申请角标 -->
+      <button class="req-badge hidden" id="reqBadge">带入申请<b>0</b></button>
+
+      <!-- 表情包开关：牌桌右下角；点开后由屏幕下方向上滑出表情面板 -->
+      <button class="emote-fab" id="btnEmote" type="button" aria-label="表情" aria-expanded="false">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <circle cx="24" cy="24" r="19.4" fill="none" stroke="currentColor" stroke-width="2"/>
+          <circle cx="17.4" cy="19.6" r="2.5" fill="currentColor"/>
+          <circle cx="30.6" cy="19.6" r="2.5" fill="currentColor"/>
+          <path d="M15.4 29.4c2.4 4.2 5.3 6.2 8.6 6.2s6.2-2 8.6-6.2" fill="none"
+                stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <!-- 对讲机（v0.20.53）：按住话筒说话，松手即停，全桌可听 -->
+      <button class="mic-fab" id="btnMic" type="button" aria-label="按住说话" aria-pressed="false">
+        <svg class="mic-icon" viewBox="0 0 48 48" aria-hidden="true">
+          <rect x="18.2" y="6.5" width="11.6" height="23" rx="5.8" fill="currentColor"/>
+          <path d="M12.4 22.6a11.6 11.6 0 0 0 23.2 0" fill="none" stroke="currentColor"
+                stroke-width="3" stroke-linecap="round"/>
+          <path d="M24 34.4v6.2M17.4 40.8h13.2" fill="none" stroke="currentColor"
+                stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <span class="mic-wave" aria-hidden="true"></span>
+        <!-- v0.20.54：单次对讲 10 秒倒计时。按住时进度环 + 剩余秒数叠在按钮上，
+             到点自动断开；不额外占位，避免遮住相邻的笑脸开关。 -->
+        <svg class="mt-ring" viewBox="0 0 44 44" aria-hidden="true">
+          <circle class="mt-bg" cx="22" cy="22" r="19"/>
+          <circle class="mt-fg" id="micTimerArc" cx="22" cy="22" r="19"/>
+        </svg>
+        <span class="mic-count" id="micTimer" aria-hidden="true"><b id="micTimerNum">10</b><i>s</i></span>
+      </button>
+      <!-- 加时（v0.20.56）：从「我」的行动键组里独立出来，常驻「表情」正上方；
+           与左上「对讲机」中线对齐，四角对称。非我回合 / 次数用完 / 钻石不足时置灰不可点。 -->
+      <button class="ext-fab off" id="btnExt" type="button" aria-label="加时" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="13.4" r="6.6"/>
+          <path d="M12 10v3.6l2.5 1.7"/>
+          <path d="M5.2 5.4 7.4 3.6M18.8 5.4 16.6 3.6"/>
+        </svg>
+        <span>加时</span>
+        <b id="btnExtCost">2</b>
+      </button>
+      <!-- 表情包面板：半透明背景，除表情外不放任何文字 -->
+      <div class="emote-sheet" id="emoteSheet" aria-hidden="true">
+        <div class="emote-grid" id="emoteGrid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="admin-panel hidden" id="adminPanel">
+  <div class="admin-card">
+    <div class="admin-head">
+      <b>开发者控制台</b>
+      <span class="admin-who" id="adminWho"></span>
+      <button class="admin-x" id="adminClose">×</button>
+    </div>
+    <div class="admin-bar">
+      <span class="admin-sum" id="adminSum">加载中…</span>
+      <button class="admin-mini" id="adminRefresh">刷新</button>
+      <button class="admin-mini" id="adminLogout">退出</button>
+    </div>
+    <div class="admin-list" id="adminList"></div>
+  </div>
+</div>
+
+<div class="rotate-hint" id="rotateHint">
+  <i class="rotate-icon"></i>
+  <p>请竖屏使用</p>
+</div>
+<div class="modal hidden" id="modal"><div class="modal-box" id="modalBox"></div></div>
+
+<!-- v0.22.24：分享弹窗 —— 文案按原文照排，不加字；点空白处或右上角 × 关闭 -->
+<div class="share-pop hidden" id="sharePop">
+  <div class="share-card">
+    <button class="share-x" id="shareClose" type="button" aria-label="关闭">×</button>
+    <div class="share-block">
+      <b>iPhone 地址</b>
+      <a class="share-url" href="https://kuanzhai36.it.com/">https://kuanzhai36.it.com/</a>
+      <p class="share-steps">『iPhone 用户操作：用Safari 打开 地址<br>→ 分享 → 添加到主屏幕 → 桌面生成「宽窄」图标，点开即全屏使用。』</p>
+    </div>
+    <div class="share-block">
+      <b>安卓</b>
+      <a class="share-url" href="https://kuanzhai36.it.com/kuanzhai.apk">https://kuanzhai36.it.com/kuanzhai.apk</a>
+    </div>
+  </div>
+</div>
+
+<script>
+/* 首帧先算一次画布几何：app.js 是 module（异步），不先算会先看到一帧全屏拉伸的登录页 */
+(function () {
+  /* 软键盘判定：Android WebView 用 adjustResize 时，键盘弹出会直接把 innerHeight 砍掉一半，
+     舞台会跟着缩成一条。这里记住"没有键盘时的基线高度"，明显变矮且焦点在输入框上就冻结重排，
+     键盘收起后自动恢复。桌面浏览器 / iOS 上永不触发，不影响现有表现。 */
+  var baseVH = 0, kbFrozen = false;
+  window.__dhIsKeyboard = function (vh) {
+    if (!baseVH) baseVH = vh;
+    var a = document.activeElement;
+    var typing = !!(a && a.tagName && /^(INPUT|TEXTAREA)$/.test(a.tagName));
+    var shrunk = vh < baseVH * 0.82;
+    if (typing && shrunk) {
+      kbFrozen = true;
+      /* 键盘弹出会把视口压成"宽>高"，CSS 的 orientation 会误判成横屏，
+         打个标记让横屏提示层在这段时间闭嘴 */
+      document.documentElement.dataset.kb = '1';
+      return true;
+    }
+    if (!shrunk) {
+      kbFrozen = false;
+      delete document.documentElement.dataset.kb;
+      baseVH = vh;
+    }
+    return false;
+  };
+
+  function firstFit() {
+    /* iOS Safari 的 innerHeight 可能报「工具栏收起」的大视口（如 844），而 #app(fixed inset:0)
+       实际按「工具栏展开」的小视口（如 745）布局：两值不一致时舞台会比容器高，居中后
+       顶部被顶出屏幕（座位顶到 HUD、等待房菜单/回顾整个消失）、底部收不满。
+       旧服务器走 http，Safari 工具栏收不起来，两值永远一致，所以那时没暴露。
+       documentElement.clientWidth/Height 与 #app 完全同源、永远一致；与 inner* 取小者兜底。 */
+    var _de = document.documentElement;
+    var vw = Math.min(window.innerWidth, _de.clientWidth) || window.innerWidth;
+    var vh = Math.min(window.innerHeight, _de.clientHeight) || window.innerHeight;
+    if (window.__dhIsKeyboard(vh)) return;
+    var k = Math.min(vw / 750, vh / 1624) || 1;
+    var st = document.getElementById('stage');
+    if (st) {
+      st.style.width = '750px';
+      st.style.height = '1624px';
+      st.style.transform = 'translate(-50%, -50%) scale(' + k + ')';
+    }
+    var w = 750 * k, h = 1624 * k;
+    var r = document.documentElement.style;
+    r.setProperty('--stage-left', (vw - w) / 2 + 'px');
+    r.setProperty('--stage-top', (vh - h) / 2 + 'px');
+    r.setProperty('--stage-w', w + 'px');
+    r.setProperty('--stage-h', h + 'px');
+    r.setProperty('--bleed-x', Math.max(0, (vw - w) / 2 / k) + 'px');
+    r.setProperty('--bleed-y', Math.max(0, (vh - h) / 2 / k) + 'px');
+    r.setProperty('--ui', String(Math.min(1, vw / 750)));
+  }
+  window.__firstFit = firstFit;
+  /* 兜底先登记：哪怕下面的 firstFit() 抛错，3 秒后也一定让页面可见、遮罩让出点击 */
+  window.__dhReady = function () {
+    /* v0.22.30：热更检查/下载期间按住加载页（__dhHoldGate 由 update.js 设置），
+       300ms 轮询等放行；完成自动重载进新版，失败/超时立即放行进登录页。
+       没有热更能力（浏览器）时 gate 不存在，直接放行。 */
+    if (window.__dhHoldGate && window.__dhHoldGate()) {
+      clearTimeout(window.__dhReadyT);
+      window.__dhReadyT = setTimeout(window.__dhReady, 300);
+      return;
+    }
+    document.documentElement.classList.add('dh-ready');
+  };
+  setTimeout(window.__dhReady, 3000);
+  /* v0.22.30：热更按住期间 __dhReady 会被 gate 挡回来——
+     这条轮询保证无论 app.js 是否正常执行，热更一放行 dh-ready 一定补上。 */
+  var readyPoll = setInterval(function () {
+    if (document.documentElement.classList.contains('dh-ready')) { clearInterval(readyPoll); return; }
+    try { window.__dhReady(); } catch (e) { document.documentElement.classList.add('dh-ready'); clearInterval(readyPoll); }
+  }, 1000);
+  try { firstFit(); } catch (e) {}
+  window.addEventListener('resize', firstFit, { passive: true });
+})();
+</script>
+
+<script>
+/* app.js 同样要带分享码，用动态插入的方式保证请求能过网关 */
+(function () {
+  var s = document.createElement('script');
+  s.type = 'module';
+  s.src = 'app.js' + (window.__SC_Q__ || '');
+  document.body.appendChild(s);
+})();
+</script>
+
+<!-- 热更新引导：只在 App 壳里执行（浏览器里第一行就 return）。
+     放在 app.js 之后，确保 Capacitor 已注入、首屏也已开始渲染。 -->
+<script src="update.js"></script>
+
+<!-- v0.22.45：系统头像选择弹窗（注册必选 / 「我的」换头像共用）。
+     头像格由 app.js 按 img/avatars/list.json 渲染，这里只放骨架。 -->
+<div class="ava-pop hidden" id="avaPop">
+  <div class="ava-box">
+    <button class="ava-x" id="avaPopX" type="button" aria-label="关闭">×</button>
+    <h3>选择头像</h3>
+    <button class="ava-album" id="avaAlbum" type="button">📁 从相册上传</button>
+    <div class="ava-grid" id="avaGrid"></div>
+    <div class="ava-cancel" id="avaCancel">取消</div>
+  </div>
+</div>
+<input type="file" id="avaFile" accept="image/*" style="display:none">
+</body>
+</html>
